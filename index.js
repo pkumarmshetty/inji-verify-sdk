@@ -118,7 +118,7 @@ const scanFilesForQr = async (selectedFile) => {
 
 
 const UploadFileSizeLimits = {
-  min: 10000,
+  min: 1000,
   max: 7000000
 };
 
@@ -146,15 +146,13 @@ const decodeQrData = async (qrData) => {
     const header = splitQrData[0];
 
     if (SUPPORTED_QR_HEADERS.indexOf(header) === -1) return;
-    if (splitQrData.length !== 2) return; 
+    if (splitQrData.length !== 2) return;
 
     encodedData = splitQrData[1];
 
   }
   let decodedData = new TextDecoder("utf-8").decode(encodedData);
-  ;
   if (decodedData.startsWith(ZIP_HEADER)) {
-
     return await decodeBinary(encodedData);
   }
   return decode(decodedData);
@@ -164,18 +162,16 @@ const decodeQrData = async (qrData) => {
 async function fetchData(resource) {
   try {
     const response = await fetch(resource);
-
     if (!response.ok) {
       throw new Error(`HTTP error! Status: ${response.status}`);
     }
-
     const data = await response.json();
-
     return data.credential;
   } catch (error) {
     console.error('Fetch error:', error);
   }
 }
+
 async function apicheck(credential, url) {
   try {
     const response = await fetch(`${url}`, {
@@ -187,74 +183,68 @@ async function apicheck(credential, url) {
     });
 
     const result = await response.json();
-
-    if (result.verificationStatus === "SUCCESS") {
-      return {
-        result,
-        credential
-      };
-    } else {
-      return {
-        credential: {},
-        result: result.verificationStatus,
-      }
-    }
+    return {
+      result: result.verificationStatus,
+      credential
+    };
+    
   } catch (error) {
 
     return error;
   }
 }
 export async function vcVerification(file, url) {
-  const check = doFileChecks(file);
-  const userURL = url;
-  let scanResult = { data: null, error: null };
-
-  scanResult = await scanFilesForQr(file);
+  const isFileValid = doFileChecks(file);
+  if (!isFileValid) {
+    return {
+      "status": "FAILURE",
+      "data": {},
+      "error": "Invalid file type"
+    };
+  }
+  let scanResult = await scanFilesForQr(file);
   if (scanResult.error) {
-    return null;
+    return {
+      "status": "FAILURE",
+      "data": {},
+      "error": scanResult.error
+    };
   }
   console.log(scanResult.data);
-  if (check) {
-    if (scanResult?.data.startsWith("INJI_OVP://https://")) {
-      const urlString = scanResult.data.replace(/^INJI_OVP:\/\//, '');
-      const url = new URL(urlString);
-      const resource = (url.searchParams.get('resource'));
-      const credential = await fetchData(resource);
-      const finaldata = await apicheck(JSON.stringify(credential), userURL)
-      const parsedData = JSON.parse(JSON.stringify(finaldata));
-      const data = {
-        credential: parsedData
-      }
-      console.log(data);
-      return data
-    } else {
-
-      const uint8Array = fromString(scanResult.data, "utf8");
-      const credential = await decodeQrData(uint8Array);
-      const finaldata = await apicheck(credential, userURL);
-      console.log(JSON.stringify(finaldata) + "actual output");
-      const parsedData = JSON.parse(JSON.stringify(finaldata));
-      const data = {
-        credential: parsedData
-      }
-      return data
-
-    }
-  }
-
-  return null;
-
+  return vcQrCodeVerification(scanResult.data, url)
 }
-export async function vcQrCodeVerification(file, url) {
-  if (true) {
-    const uint8Array = fromString(file, "utf8");
-    const credential = await decodeQrData(uint8Array);
-    const finaldata = await apicheck(credential, url);
+
+export async function vcQrCodeVerification(qrData, url) {
+  let credential = {};
+  try {
+    if (qrData.startsWith("INJI_OVP://")) {
+      const ovpURL = qrData.replace(/^INJI_OVP:\/\//, '');
+      const urlObject = new URL(ovpURL);
+      const resource = (urlObject.searchParams.get('resource'));
+      credential = await fetchData(resource);
+    } else {
+      const uint8Array = fromString(qrData, "utf8");
+      credential = await decodeQrData(uint8Array);
+    }
+    const finaldata = await apicheck(JSON.stringify(credential), url)
     const parsedData = JSON.parse(JSON.stringify(finaldata));
     const data = {
-      credential: parsedData
+      "status": "SUCCESS",
+      data: parsedData,
+      error: ""
     }
+    console.log(data);
+    return data
+  } catch (e) {
+    const data = {
+      "status": "FAILURE",
+      data: {},
+      error: JSON.stringify(e)
+    }
+    console.log(data);
     return data
   }
-  return null;
 }
+
+
+
