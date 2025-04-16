@@ -224,7 +224,7 @@ export async function vcQrCodeVerification(qrData, url) {
       credential = await fetchData(resource);
     } else {
       const uint8Array = fromString(qrData, "utf8");
-      credential = await decodeQrData(uint8Array);
+      credential = JSON.parse(await decodeQrData(uint8Array));
     }
     const finaldata = await apicheck(JSON.stringify(credential), url)
     
