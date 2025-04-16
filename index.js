@@ -226,7 +226,7 @@ export async function vcQrCodeVerification(qrData, url) {
       const uint8Array = fromString(qrData, "utf8");
       credential = await decodeQrData(uint8Array);
     }
-    const finaldata = await apicheck(credential, url)
+    const finaldata = await apicheck(JSON.stringify(credential), url)
     
     const data = {
       "status": "SUCCESS",
