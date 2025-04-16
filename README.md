@@ -109,7 +109,7 @@ import {vcQrCodeVerification} from 'inji-verify-sdk';
 
 
   const scannedText = '...'; // String value from QR scanner
-  const result = await vcorcodeverification(
+  const result = await vcQrCodeVerification(
     scannedText,
     'https://xyzcom/v1/verify/vc-verification'
   );
