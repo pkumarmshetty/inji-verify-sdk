@@ -1,6 +1,6 @@
 {
   "name": "inji-verify-sdk",
-  "version": "1.0.32",
+  "version": "1.0.33",
   "description": "SDK for verifying credentials using Inji",
   "main": "index.js",
   "type": "module",
