@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>QR Example</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<h1>PixelPass Example QR Generator App</h1>
+<div class="container">
+    <div style="flex: 1; padding: 20px;height: 650px">
+        <textarea id="json-text" oninput="generateQR()" placeholder="Paste Your JSON Here"></textarea>
+    </div>
+    <div style="flex: 1; padding: 20px;height: 652px">
+        <div style="border: 1px solid black; height: 654px">
+            <img id="qr-image" src="" height="650px">
+        </div>
+    </div>
+</div>
+<h3 id="version" style="visibility: hidden"></h3>
+<div id="download-section" style="visibility: hidden">
+    <a id='download' href="" title="ImageName">
+        <button>Download</button>
+    </a>
+    <h3 id="error" style="visibility: hidden">Invalid JSON</h3>
+</div>
+</body>
+
+<script>
+    function generateQR() {
+        let jsonText = document.getElementById("json-text").value
+        try {
+            let jsonString = JSON.stringify(JSON.parse(jsonText))
+            document.getElementById("error").style.visibility = "hidden";
+            let xhttp = new XMLHttpRequest();
+            xhttp.onreadystatechange = function () {
+                if (this.readyState === 4 && this.status === 200) {
+                    console.log(xhttp.responseText)
+                }
+                let response = JSON.parse(xhttp.responseText)
+                document.getElementById("qr-image").src = response[1];
+                document.getElementById("download").href = response[1];
+                document.getElementById("version").innerText = `Current QR version is ${response[0]}`;
+                document.getElementById("download").download = `QR_v${response[0]}.PNG`
+                document.getElementById("version").style.visibility = "visible";
+                document.getElementById("qr-image").style.visibility = "visible";
+                document.getElementById("download-section").style.visibility = "visible"
+            };
+            xhttp.open("POST", 'qr', true);
+            xhttp.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+            xhttp.send(jsonString);
+        } catch (e) {
+            document.getElementById("error").style.visibility = "visible";
+            document.getElementById("qr-image").style.visibility = "hidden";
+            document.getElementById("version").style.visibility = "hidden";
+            document.getElementById("download-section").style.visibility = "hidden"
+        }
+    }
+</script>
+
+</html>

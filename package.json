@@ -1,0 +1,33 @@
+{
+  "name": "inji-verify-sdk",
+  "version": "1.0.31",
+  "description": "SDK for verifying credentials using Inji",
+  "main": "index.js",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./index.js",
+      "types": "./index.d.ts"
+    }
+  },
+  "types": "./index.d.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "qr",
+    "validator",
+    "pdf",
+    "image",
+    "reader",
+    "sdk"
+  ],
+  "author": "Pavan Kumar M",
+  "license": "MPL-2.0 license",
+  "dependencies": {
+    "@mosip/pixelpass": "^0.6.0",
+    "@zxing/library": "^0.21.3",
+    "jsqr": "^1.4.0",
+    "uint8arrays": "^5.1.0"
+  }
+}
