@@ -34,16 +34,15 @@ fileInput.addEventListener('change', async (event) => {
   const file = event.target.files[0];
   const url = 'https://xyzcom/v1/verify/vc-verification';
 
-  const result = await VCverification(file, url);
+  const result = await vcVerification(file, url);
   console.log(result);
 });
 ```
-
 ---
 
 ## 💠 API
 
-### `VCverification(file: File, url: API URL): Promise<object | string | null>`
+### `vcVerification(file: File, url: API URL): Promise<object | string | null>`
 
 | Parameter | Type   | Required | Description                                             |
 |----------|--------|----------|---------------------------------------------------------|
@@ -118,7 +117,7 @@ import {vcQrCodeVerification} from 'inji-verify-sdk';
 ```
 ## 💠 API
 
-VCverificationScanQrcode(data: string, url: API URL): Promise<object | null>
+vcQrCodeVerification(data: string, url: API URL): Promise<object | null>
 Verifies a Verifiable Credential directly from a QR code text string.
 
 
