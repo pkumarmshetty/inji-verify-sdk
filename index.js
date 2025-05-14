@@ -195,13 +195,13 @@ async function apicheck(credential, url) {
 }
 export async function vcVerification(file, url) {
   const isFileValid = doFileChecks(file);
-  if (!isFileValid) {
-    return {
-      "status": "FAILURE",
-      "data": {},
-      "error": "Invalid file type"
-    };
-  }
+  // if (!isFileValid) {
+  //   return {
+  //     "status": "FAILURE",
+  //     "data": {},
+  //     "error": "Invalid file type"
+  //   };
+  // }
   let scanResult = await scanFilesForQr(file);
   if (scanResult.error) {
     return {
