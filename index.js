@@ -8,7 +8,7 @@ import { BrowserQRCodeReader } from '@zxing/library';
 
 // Set PDF.js worker using local bundled file (not CDN - avoids corporate network issues)
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
+  'pdfjs-dist/build/pdf.worker.mjs',
   import.meta.url
 ).toString();
 
