@@ -4,6 +4,7 @@ import { fromString } from 'uint8arrays/from-string';
 import { decode, decodeBinary } from "@mosip/pixelpass";
 import * as pdfjsLib from "pdfjs-dist";
 import jsQR from 'jsqr';
+import { BrowserQRCodeReader } from '@zxing/library';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
 
@@ -54,15 +55,20 @@ const readQRcodeFromImageFile = async (file, format, isPDF) => {
   });
 };
 
-const scanCanvasForQR = (canvas) => {
+const scanCanvasForQR = async (canvas) => {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   // Force alpha to 255 (opaque) - PDF.js can render transparent pixels
   for (let i = 3; i < imageData.data.length; i += 4) {
     imageData.data[i] = 255;
   }
+
+  // Try raw jsQR first on original data
+  const rawResult = jsQR(imageData.data, canvas.width, canvas.height);
+  if (rawResult) return rawResult.data;
+
   // Try multiple binarization thresholds
-  const thresholds = [128, 100, 160, 80];
+  const thresholds = [100, 128, 160, 80];
   for (const threshold of thresholds) {
     const binaryData = new Uint8ClampedArray(imageData.data.length);
     for (let i = 0; i < imageData.data.length; i += 4) {
@@ -85,10 +91,24 @@ const scanCanvasForQR = (canvas) => {
     inverted[i + 3] = 255;
   }
   const invertedResult = jsQR(inverted, canvas.width, canvas.height);
-  return invertedResult ? invertedResult.data : null;
+  if (invertedResult) return invertedResult.data;
+
+  // ZXing fallback via data URL
+  try {
+    const tmpCanvas = document.createElement('canvas');
+    tmpCanvas.width = canvas.width;
+    tmpCanvas.height = canvas.height;
+    const tmpCtx = tmpCanvas.getContext('2d');
+    tmpCtx.putImageData(imageData, 0, 0);
+    const codeReader = new BrowserQRCodeReader();
+    const decoded = await codeReader.decodeFromImageUrl(tmpCanvas.toDataURL('image/png'));
+    if (decoded && decoded.text) return decoded.text;
+  } catch (e) { /* zxing failed */ }
+
+  return null;
 };
 
-const cropAndScan = (srcCanvas, x, y, w, h) => {
+const cropAndScan = async (srcCanvas, x, y, w, h) => {
   const crop = document.createElement('canvas');
   crop.width = w;
   crop.height = h;
@@ -96,22 +116,22 @@ const cropAndScan = (srcCanvas, x, y, w, h) => {
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(0, 0, w, h);
   ctx.drawImage(srcCanvas, x, y, w, h, 0, 0, w, h);
-  return scanCanvasForQR(crop);
+  return await scanCanvasForQR(crop);
 };
 
-const scanPageRegions = (canvas) => {
+const scanPageRegions = async (canvas) => {
   const w = canvas.width;
   const h = canvas.height;
   const regions = [
-    { x: w * 0.6, y: h * 0.7, w: w * 0.4, h: h * 0.3 },   // bottom-right
-    { x: w * 0.5, y: h * 0.5, w: w * 0.5, h: h * 0.5 },   // right-center to bottom
-    { x: w * 0.65, y: h * 0.75, w: w * 0.35, h: h * 0.25 }, // tight bottom-right
-    { x: 0, y: h * 0.5, w: w, h: h * 0.5 },                 // bottom half
-    { x: w * 0.5, y: 0, w: w * 0.5, h: h * 0.5 },           // top-right
-    { x: 0, y: 0, w: w, h: h },                              // full page
+    { x: w * 0.6, y: h * 0.75, w: w * 0.4, h: h * 0.25 },   // bottom-right (WeLearnTT banner)
+    { x: w * 0.55, y: h * 0.3, w: w * 0.45, h: h * 0.45 },   // right-center (UTT certificate QR)
+    { x: w * 0.5, y: h * 0.5, w: w * 0.5, h: h * 0.5 },      // bottom-right quadrant
+    { x: 0, y: h * 0.5, w: w, h: h * 0.5 },                   // bottom half
+    { x: w * 0.5, y: 0, w: w * 0.5, h: h * 0.5 },             // top-right
+    { x: 0, y: 0, w: w, h: h },                                // full page
   ];
   for (const r of regions) {
-    const result = cropAndScan(canvas, Math.floor(r.x), Math.floor(r.y), Math.floor(r.w), Math.floor(r.h));
+    const result = await cropAndScan(canvas, Math.floor(r.x), Math.floor(r.y), Math.floor(r.w), Math.floor(r.h));
     if (result) return result;
   }
   return null;
@@ -124,7 +144,7 @@ const readQRcodeFromPdf = async (file, format) => {
 
   // Scan last page first (common for WeLearnTT), then first page, then rest
   const pageOrder = [...new Set([numPages, 1, ...Array.from({ length: numPages - 2 }, (_, i) => i + 2)])];
-  const scales = [3.0, 4.0, 2.0];
+  const scales = [3.0, 4.0, 5.0, 2.0];
 
   for (const pageNum of pageOrder) {
     const page = await pdf.getPage(pageNum);
@@ -139,7 +159,7 @@ const readQRcodeFromPdf = async (file, format) => {
       context.fillRect(0, 0, canvas.width, canvas.height);
       await page.render({ canvasContext: context, viewport }).promise;
 
-      const qrCode = scanPageRegions(canvas);
+      const qrCode = await scanPageRegions(canvas);
       if (qrCode) return qrCode;
     }
   }
