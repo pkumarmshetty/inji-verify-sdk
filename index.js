@@ -6,7 +6,8 @@ import * as pdfjsLib from "pdfjs-dist";
 import jsQR from 'jsqr';
 import { BrowserQRCodeReader } from '@zxing/library';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
+// Disable worker to avoid CDN/CORS issues - runs on main thread
+pdfjsLib.GlobalWorkerOptions.workerSrc = '';
 
 const HEADER_DELIMITER = '';
 const SUPPORTED_QR_HEADERS = [''];
@@ -139,8 +140,10 @@ const scanPageRegions = async (canvas) => {
 
 const readQRcodeFromPdf = async (file, format) => {
   const pdfData = await file.arrayBuffer();
+  console.log('[SDK] PDF arrayBuffer size:', pdfData.byteLength);
   const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
   const numPages = pdf.numPages;
+  console.log('[SDK] PDF loaded, pages:', numPages);
 
   // Scan last page first (common for WeLearnTT), then first page, then rest
   const pageOrder = [...new Set([numPages, 1, ...Array.from({ length: numPages - 2 }, (_, i) => i + 2)])];
@@ -158,9 +161,13 @@ const readQRcodeFromPdf = async (file, format) => {
       context.fillStyle = '#FFFFFF';
       context.fillRect(0, 0, canvas.width, canvas.height);
       await page.render({ canvasContext: context, viewport }).promise;
+      console.log(`[SDK] Page ${pageNum} rendered at scale ${scale}: ${canvas.width}x${canvas.height}`);
 
       const qrCode = await scanPageRegions(canvas);
-      if (qrCode) return qrCode;
+      if (qrCode) {
+        console.log(`[SDK] QR found on page ${pageNum} at scale ${scale}`);
+        return qrCode;
+      }
     }
   }
   throw new Error(`No ${format} found`);
