@@ -5,8 +5,8 @@ import { decode, decodeBinary } from "@mosip/pixelpass";
 import * as pdfjsLib from "pdfjs-dist";
 import jsQR from 'jsqr';
 
-// Disable worker to avoid CDN/CORS issues - runs on main thread
-pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+// Set PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
 
 const HEADER_DELIMITER = '';
 const SUPPORTED_QR_HEADERS = [''];
