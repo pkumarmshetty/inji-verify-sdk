@@ -4,7 +4,6 @@ import { fromString } from 'uint8arrays/from-string';
 import { decode, decodeBinary } from "@mosip/pixelpass";
 import * as pdfjsLib from "pdfjs-dist";
 import jsQR from 'jsqr';
-import { BrowserQRCodeReader } from '@zxing/library';
 
 // Disable worker to avoid CDN/CORS issues - runs on main thread
 pdfjsLib.GlobalWorkerOptions.workerSrc = '';
@@ -56,60 +55,50 @@ const readQRcodeFromImageFile = async (file, format, isPDF) => {
   });
 };
 
-const scanCanvasForQR = async (canvas) => {
+const scanCanvasForQR = (canvas) => {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  // Force alpha to 255 (opaque) - PDF.js can render transparent pixels
-  for (let i = 3; i < imageData.data.length; i += 4) {
-    imageData.data[i] = 255;
+  const { data, width, height } = imageData;
+
+  // Force alpha to 255 (opaque) - PDF.js renders transparent pixels
+  for (let i = 3; i < data.length; i += 4) {
+    data[i] = 255;
   }
 
   // Try raw jsQR first on original data
-  const rawResult = jsQR(imageData.data, canvas.width, canvas.height);
-  if (rawResult) return rawResult.data;
+  let code = jsQR(data, width, height);
+  if (code) return code.data;
 
   // Try multiple binarization thresholds
-  const thresholds = [100, 128, 160, 80];
-  for (const threshold of thresholds) {
-    const binaryData = new Uint8ClampedArray(imageData.data.length);
-    for (let i = 0; i < imageData.data.length; i += 4) {
-      const gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+  for (const threshold of [100, 128, 160, 80]) {
+    const bw = new Uint8ClampedArray(data.length);
+    for (let i = 0; i < data.length; i += 4) {
+      const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
       const val = gray > threshold ? 255 : 0;
-      binaryData[i] = val;
-      binaryData[i + 1] = val;
-      binaryData[i + 2] = val;
-      binaryData[i + 3] = 255;
+      bw[i] = val;
+      bw[i + 1] = val;
+      bw[i + 2] = val;
+      bw[i + 3] = 255;
     }
-    const result = jsQR(binaryData, canvas.width, canvas.height);
-    if (result) return result.data;
+    code = jsQR(bw, width, height);
+    if (code) return code.data;
   }
-  // Try inverted colors
-  const inverted = new Uint8ClampedArray(imageData.data.length);
-  for (let i = 0; i < imageData.data.length; i += 4) {
-    inverted[i] = 255 - imageData.data[i];
-    inverted[i + 1] = 255 - imageData.data[i + 1];
-    inverted[i + 2] = 255 - imageData.data[i + 2];
-    inverted[i + 3] = 255;
-  }
-  const invertedResult = jsQR(inverted, canvas.width, canvas.height);
-  if (invertedResult) return invertedResult.data;
 
-  // ZXing fallback via data URL
-  try {
-    const tmpCanvas = document.createElement('canvas');
-    tmpCanvas.width = canvas.width;
-    tmpCanvas.height = canvas.height;
-    const tmpCtx = tmpCanvas.getContext('2d');
-    tmpCtx.putImageData(imageData, 0, 0);
-    const codeReader = new BrowserQRCodeReader();
-    const decoded = await codeReader.decodeFromImageUrl(tmpCanvas.toDataURL('image/png'));
-    if (decoded && decoded.text) return decoded.text;
-  } catch (e) { /* zxing failed */ }
+  // Try inverted colors (for white QR on colored background)
+  const inv = new Uint8ClampedArray(data.length);
+  for (let i = 0; i < data.length; i += 4) {
+    inv[i] = 255 - data[i];
+    inv[i + 1] = 255 - data[i + 1];
+    inv[i + 2] = 255 - data[i + 2];
+    inv[i + 3] = 255;
+  }
+  code = jsQR(inv, width, height);
+  if (code) return code.data;
 
   return null;
 };
 
-const cropAndScan = async (srcCanvas, x, y, w, h) => {
+const cropAndScan = (srcCanvas, x, y, w, h) => {
   const crop = document.createElement('canvas');
   crop.width = w;
   crop.height = h;
@@ -117,22 +106,28 @@ const cropAndScan = async (srcCanvas, x, y, w, h) => {
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(0, 0, w, h);
   ctx.drawImage(srcCanvas, x, y, w, h, 0, 0, w, h);
-  return await scanCanvasForQR(crop);
+  return scanCanvasForQR(crop);
 };
 
-const scanPageRegions = async (canvas) => {
+const scanPageRegions = (canvas) => {
   const w = canvas.width;
   const h = canvas.height;
   const regions = [
-    { x: w * 0.6, y: h * 0.75, w: w * 0.4, h: h * 0.25 },   // bottom-right (WeLearnTT banner)
-    { x: w * 0.55, y: h * 0.3, w: w * 0.45, h: h * 0.45 },   // right-center (UTT certificate QR)
-    { x: w * 0.5, y: h * 0.5, w: w * 0.5, h: h * 0.5 },      // bottom-right quadrant
-    { x: 0, y: h * 0.5, w: w, h: h * 0.5 },                   // bottom half
-    { x: w * 0.5, y: 0, w: w * 0.5, h: h * 0.5 },             // top-right
-    { x: 0, y: 0, w: w, h: h },                                // full page
+    // Bottom-right area (WeLearnTT banner ~55-70% height)
+    [Math.floor(w * 0.6), Math.floor(h * 0.5), Math.floor(w * 0.4), Math.floor(h * 0.35)],
+    // Right-center (UTT certificate QR ~35-60% height)
+    [Math.floor(w * 0.55), Math.floor(h * 0.3), Math.floor(w * 0.45), Math.floor(h * 0.45)],
+    // Bottom-right quadrant
+    [Math.floor(w / 2), Math.floor(h / 2), Math.floor(w / 2), Math.floor(h / 2)],
+    // Bottom half
+    [0, Math.floor(h / 2), w, Math.floor(h / 2)],
+    // Top-right quadrant
+    [Math.floor(w / 2), 0, Math.floor(w / 2), Math.floor(h / 2)],
+    // Full page
+    [0, 0, w, h],
   ];
-  for (const r of regions) {
-    const result = await cropAndScan(canvas, Math.floor(r.x), Math.floor(r.y), Math.floor(r.w), Math.floor(r.h));
+  for (const [rx, ry, rw, rh] of regions) {
+    const result = cropAndScan(canvas, rx, ry, rw, rh);
     if (result) return result;
   }
   return null;
@@ -140,34 +135,40 @@ const scanPageRegions = async (canvas) => {
 
 const readQRcodeFromPdf = async (file, format) => {
   const pdfData = await file.arrayBuffer();
-  console.log('[SDK] PDF arrayBuffer size:', pdfData.byteLength);
+  console.log('[SDK] PDF size:', pdfData.byteLength);
   const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
   const numPages = pdf.numPages;
-  console.log('[SDK] PDF loaded, pages:', numPages);
+  console.log('[SDK] PDF pages:', numPages);
 
-  // Scan last page first (common for WeLearnTT), then first page, then rest
-  const pageOrder = [...new Set([numPages, 1, ...Array.from({ length: numPages - 2 }, (_, i) => i + 2)])];
-  const scales = [3.0, 4.0, 5.0, 2.0];
+  // Build page order: last page first, then first page, then remaining
+  const pageOrder = [numPages];
+  if (numPages > 1) pageOrder.push(1);
+  for (let i = numPages - 1; i > 1; i--) pageOrder.push(i);
+
+  const scales = [3.0, 4.0, 2.0];
 
   for (const pageNum of pageOrder) {
-    const page = await pdf.getPage(pageNum);
-    for (const scale of scales) {
-      const viewport = page.getViewport({ scale });
-      const canvas = document.createElement("canvas");
-      const context = canvas.getContext("2d", { willReadFrequently: true });
-      canvas.height = viewport.height;
-      canvas.width = viewport.width;
-      // Fill white background before rendering (critical for QR detection)
-      context.fillStyle = '#FFFFFF';
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      await page.render({ canvasContext: context, viewport }).promise;
-      console.log(`[SDK] Page ${pageNum} rendered at scale ${scale}: ${canvas.width}x${canvas.height}`);
+    try {
+      const page = await pdf.getPage(pageNum);
+      for (const scale of scales) {
+        const viewport = page.getViewport({ scale });
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        context.fillStyle = '#FFFFFF';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: context, viewport }).promise;
+        console.log(`[SDK] Page ${pageNum} scale ${scale}: ${canvas.width}x${canvas.height}`);
 
-      const qrCode = await scanPageRegions(canvas);
-      if (qrCode) {
-        console.log(`[SDK] QR found on page ${pageNum} at scale ${scale}`);
-        return qrCode;
+        const qrCode = scanPageRegions(canvas);
+        if (qrCode) {
+          console.log(`[SDK] QR FOUND on page ${pageNum} at scale ${scale}`);
+          return qrCode;
+        }
       }
+    } catch (pageErr) {
+      console.error(`[SDK] Error on page ${pageNum}:`, pageErr);
     }
   }
   throw new Error(`No ${format} found`);
