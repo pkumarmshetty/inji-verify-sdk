@@ -4,6 +4,7 @@ import { fromString } from 'uint8arrays/from-string';
 import { decode, decodeBinary } from "@mosip/pixelpass";
 import * as pdfjsLib from "pdfjs-dist";
 import jsQR from 'jsqr';
+import { BrowserQRCodeReader } from '@zxing/library';
 
 // Set PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
@@ -146,6 +147,7 @@ const readQRcodeFromPdf = async (file, format) => {
   for (let i = numPages - 1; i > 1; i--) pageOrder.push(i);
 
   const scales = [3.0, 4.0, 2.0];
+  const codeReader = new BrowserQRCodeReader();
 
   for (const pageNum of pageOrder) {
     try {
@@ -161,10 +163,42 @@ const readQRcodeFromPdf = async (file, format) => {
         await page.render({ canvasContext: context, viewport }).promise;
         console.log(`[SDK] Page ${pageNum} scale ${scale}: ${canvas.width}x${canvas.height}`);
 
+        // Try jsQR with region cropping first (fast)
         const qrCode = scanPageRegions(canvas);
         if (qrCode) {
-          console.log(`[SDK] QR FOUND on page ${pageNum} at scale ${scale}`);
+          console.log(`[SDK] QR FOUND (jsQR) on page ${pageNum} at scale ${scale}`);
           return qrCode;
+        }
+
+        // ZXing fallback on cropped regions (handles colored backgrounds better)
+        try {
+          const w = canvas.width;
+          const h = canvas.height;
+          // Try ZXing on specific regions
+          const zxRegions = [
+            [Math.floor(w * 0.5), Math.floor(h * 0.5), Math.floor(w * 0.5), Math.floor(h * 0.5)],  // bottom-right quadrant
+            [Math.floor(w * 0.55), Math.floor(h * 0.3), Math.floor(w * 0.45), Math.floor(h * 0.45)], // right-center
+            [0, 0, w, h], // full page
+          ];
+          for (const [rx, ry, rw, rh] of zxRegions) {
+            try {
+              const crop = document.createElement('canvas');
+              crop.width = rw;
+              crop.height = rh;
+              const cropCtx = crop.getContext('2d');
+              cropCtx.fillStyle = '#FFFFFF';
+              cropCtx.fillRect(0, 0, rw, rh);
+              cropCtx.drawImage(canvas, rx, ry, rw, rh, 0, 0, rw, rh);
+              const dataUrl = crop.toDataURL('image/png');
+              const decoded = await codeReader.decodeFromImageUrl(dataUrl);
+              if (decoded && decoded.text) {
+                console.log(`[SDK] QR FOUND (ZXing) on page ${pageNum} at scale ${scale}, region [${rx},${ry}]`);
+                return decoded.text;
+              }
+            } catch (e) { /* region failed */ }
+          }
+        } catch (zxErr) {
+          // ZXing didn't find QR on this page/scale
         }
       }
     } catch (pageErr) {
